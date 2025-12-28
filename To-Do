@@ -1,0 +1,233 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  StyleSheet, Text, View, TextInput, TouchableOpacity, 
+  SafeAreaView, Animated, ScrollView, KeyboardAvoidingView, Platform, Alert 
+} from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const COLORS = {
+  background: '#1A1A1A',
+  card: '#3D3D3D',
+  text: '#FFFFFF',
+  placeholder: '#757575',
+  blueAccent: '#4C78E3',
+};      
+
+// --- Blinking Pointer Component ---
+const BlinkingCursor = () => {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+  return <Animated.View style={[styles.cursor, { opacity: fadeAnim }]} />;
+};
+
+// --- Screen 1: Landing Page (List) ---
+const ListScreen = ({ navigation }) => {
+  const [todos, setTodos] = useState([]);
+
+  const loadTodos = async () => {
+    const savedTodos = await AsyncStorage.getItem('todos');
+    if (savedTodos) setTodos(JSON.parse(savedTodos));
+  };
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', loadTodos);
+    return unsubscribe;
+  }, [navigation]);
+
+  const deleteTodo = (index) => {
+    const confirmDelete = () => {
+      const newTodos = [...todos];
+      newTodos.splice(index, 1);
+      setTodos(newTodos);
+      AsyncStorage.setItem('todos', JSON.stringify(newTodos));
+    };
+
+    if (Platform.OS === 'web') {
+      if (confirm("Delete this note?")) confirmDelete();
+    } else {
+      Alert.alert("Delete Note", "Are you sure?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: confirmDelete }
+      ]);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <View style={styles.logoBox}><Text style={styles.logoText}>TD</Text></View>
+        <Text style={styles.headerTitle}>To-Do List</Text>
+        <TouchableOpacity><Text style={styles.menuIcon}>≡</Text></TouchableOpacity>
+      </View>
+      
+      <ScrollView contentContainerStyle={styles.content}>
+        {todos.length === 0 ? (
+          [1, 2, 3].map((i) => <View key={i} style={styles.listItem} />)
+        ) : (
+          todos.map((item, index) => (
+            <TouchableOpacity 
+              key={index} 
+              style={styles.listItem} 
+              onPress={() => navigation.navigate('Entry', { todo: item, index })}
+              onLongPress={() => deleteTodo(index)}
+            >
+              <Text style={styles.todoItemText} numberOfLines={1}>{item.title || "Untitled Note"}</Text>
+            </TouchableOpacity>
+          ))
+        )}
+      </ScrollView>
+
+      <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('Entry')}>
+        <Text style={styles.fabText}>+</Text>
+      </TouchableOpacity>
+    </SafeAreaView>
+  );
+};
+
+// --- Screen 2: Writing Page (Entry) ---
+const EntryScreen = ({ navigation, route }) => {
+  const [title, setTitle] = useState(route.params?.todo?.title || '');
+  const [subtitle, setSubtitle] = useState(route.params?.todo?.subtitle || '');
+
+  const saveTodo = async () => {
+    const existingData = await AsyncStorage.getItem('todos');
+    let todos = existingData ? JSON.parse(existingData) : [];
+    const newTodo = { title, subtitle };
+    
+    if (route.params?.index !== undefined) {
+      todos[route.params.index] = newTodo;
+    } else {
+      todos.unshift(newTodo);
+    }
+
+    await AsyncStorage.setItem('todos', JSON.stringify(todos));
+    navigation.goBack();
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{flex: 1}}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Text style={styles.backArrow}>〉</Text> 
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>To-Do List</Text>
+          <TouchableOpacity><Text style={styles.menuIcon}>≡</Text></TouchableOpacity>
+        </View>
+
+        <View style={styles.entryBody}>
+          <View style={styles.titleInputContainer}>
+            <TextInput
+              style={styles.titleInput}
+              placeholder="Title..."
+              placeholderTextColor={COLORS.placeholder}
+              value={title}
+              onChangeText={setTitle}
+              autoFocus
+            />
+            {title === '' && <BlinkingCursor />}
+          </View>
+
+          <View style={styles.subtitleContainer}>
+            <TextInput
+              style={styles.subtitleInput}
+              placeholder="Subtitle..."
+              placeholderTextColor={COLORS.placeholder}
+              value={subtitle}
+              onChangeText={setSubtitle}
+              multiline
+            />
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.editFab} onPress={saveTodo}>
+          <Text style={styles.editIcon}>✎</Text>
+        </TouchableOpacity>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+};
+
+const Stack = createStackNavigator();
+
+export default function App() {
+  return (
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false, animationEnabled: false }}>
+        <Stack.Screen name="List" component={ListScreen} />
+        <Stack.Screen name="Entry" component={EntryScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.background },
+  header: {
+    height: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginTop: Platform.OS === 'android' ? 30 : 0,
+  },
+  headerTitle: { color: COLORS.text, fontSize: 18, fontWeight: '500' },
+  logoBox: { backgroundColor: COLORS.blueAccent, width: 35, height: 35, borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
+  logoText: { color: '#FFF', fontWeight: 'bold', fontSize: 18 },
+  menuIcon: { color: COLORS.text, fontSize: 24 },
+  backBtn: { transform: [{ rotate: '180deg' }] },
+  backArrow: { color: COLORS.text, fontSize: 24 },
+  content: { padding: 20 },
+  listItem: {
+    backgroundColor: COLORS.card,
+    height: 50,
+    borderRadius: 25,
+    marginBottom: 15,
+    justifyContent: 'center',
+    paddingHorizontal: 25,
+  },
+  todoItemText: { color: COLORS.text, fontSize: 16 },
+  entryBody: { padding: 15, flex: 1 },
+  titleInputContainer: {
+    backgroundColor: COLORS.card,
+    borderRadius: 15,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+    height: 80,
+  },
+  titleInput: { color: COLORS.text, fontSize: 22, fontWeight: 'bold', flex: 1 },
+  subtitleContainer: {
+    backgroundColor: COLORS.card,
+    borderRadius: 15,
+    padding: 20,
+    flex: 1,
+    marginBottom: 100,
+  },
+  subtitleInput: { color: COLORS.text, fontSize: 18, textAlignVertical: 'top' },
+  cursor: { width: 3, height: 26, backgroundColor: COLORS.blueAccent, marginLeft: 2 },
+  fab: {
+    position: 'absolute', bottom: 30, right: 30,
+    backgroundColor: COLORS.blueAccent,
+    width: 60, height: 60, borderRadius: 30,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  fabText: { color: '#FFF', fontSize: 35, fontWeight: '200' },
+  editFab: {
+    position: 'absolute', bottom: 30, right: 30,
+    backgroundColor: COLORS.blueAccent,
+    width: 55, height: 55, borderRadius: 27.5,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  editIcon: { color: '#FFF', fontSize: 22 },
+});
